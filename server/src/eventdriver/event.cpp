@@ -33,7 +33,16 @@ int eventmanager::eventloopdelfd(int fd)
     fds.erase(fd);
     return 0;
 }
-
+std::vector<std::shared_ptr<event>> eventmanager::epollget()
+{
+    vector<std::shared_ptr<event>> ret;
+    epoll_event events[MAX_EVENTS];
+    int nfds = epoll_wait(epfd, events, MAX_EVENTS, -1);
+    for (int i=0;i<nfds;i++) {
+        ret.push_back(fdmap[events[i].data.fd]);
+    }
+    return ret;
+}
 void eventmanager::epolladd(shared_ptr<event> evptr)
 {
     fdmap.emplace(evptr->getfd(),evptr);
@@ -48,30 +57,9 @@ void eventmanager::epolldel(shared_ptr<event> evptr)
     //but once exited this function, the evptr will be freed automatically
     fdmap.erase(evptr->getfd());
 }
-void eventmanager::eventloop()
+std::shared_ptr<event> eventmanager::getevent(int fd)
 {
-    char buf[1024];
-    while (!fds.empty()){
-        memset(buf,0,sizeof(buf));
-        for (auto fd:fds) {
-            ssize_t read_bytes = read(fd, buf, sizeof(buf));
-            if (read_bytes>0) {
-                printf("message from fd %d: %s\n", fd, buf);
-                write(fd,buf,sizeof(buf));
-            } else if (read_bytes==0) {
-                printf("fd %d disconnected\n",fd);
-                eventloopdelfd(fd);
-                close(fd);
-                break; //you have to break here because the container fds has changed
-            } else {
-                close(fd);
-                eventloopdelfd(fd);
-                printf("fd %d readerror\n",fd);
-                break;
-            }
-        }
-    }
-    return;
+    return fdmap[fd];
 }
 
 void eventmanager::eventepoll() 
@@ -130,7 +118,8 @@ void eventmanager::eventepoll()
  * @brief
  * event class
 */
-event::event(int fd,mode mode):fd(fd),eventmode(mode) {
+event::event(int fd):fd(fd)
+{
     epoll_eventptr=shared_ptr<epoll_event>(new epoll_event);
     epoll_eventptr->data.fd = fd;
     epoll_eventptr->events = EPOLLIN | EPOLLET;
@@ -138,8 +127,21 @@ event::event(int fd,mode mode):fd(fd),eventmode(mode) {
 }
 std::shared_ptr<event> event::create_event(int fd,mode mode)
 {
-    shared_ptr<event> newevptr=shared_ptr<event>(new event(fd,mode));
-    return newevptr->evptr=newevptr;
+    shared_ptr<event> newevptr;
+    if (mode==ACCEPTOR) newevptr=std::make_shared<acceptor_event>(fd);
+    else if (mode==WAITER) newevptr=std::make_shared<client_event>(fd);
+    newevptr->setevptr(newevptr);
+    newevptr->addtomanager();
+    newevptr->create_processor();
+    return newevptr;
+}
+void event::setevptr(std::shared_ptr<event> evptr)
+{
+    this->evptr=evptr;
+}
+void event::process()
+{
+    this->processorptr->process_method();
 }
 void event::setnonblocking(int fd){
     fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
@@ -157,4 +159,89 @@ event::mode event::getmode() const
 void event::addtomanager()
 {
     eventmanager::epolladd(this->evptr);
+}
+
+/**
+ * @brief
+ * acceptor event class
+*/
+acceptor_event::acceptor_event(int fd):event(fd)
+{}
+void acceptor_event::create_processor()
+{
+    this->processorptr=std::shared_ptr<accept_processor>(new accept_processor(this->evptr));
+}
+/**
+ * @brief
+ * client event class
+*/
+client_event::client_event(int fd):event(fd)
+{}
+void client_event::create_processor()
+{
+    this->processorptr=std::shared_ptr<client_processor>(new client_processor(this->evptr));
+}
+/**
+ * @brief
+ * processor
+*/
+processor::processor(std::shared_ptr<event> evptr)
+{
+    this->evptr=evptr;
+    bufferptr=shared_ptr<char[]>(new char[READ_BUF_SIZE]);
+}
+/**
+ * @brief
+ * acceptor processor
+*/
+accept_processor::accept_processor(std::shared_ptr<event> evptr):processor(evptr)
+{}
+void accept_processor::process_method()
+{
+    event::create_event(acceptor::accept_new_client(),event::WAITER);
+}
+/**
+ * @brief
+ * client processor
+*/
+client_processor::client_processor(std::shared_ptr<event> evptr):processor(evptr)
+{}
+void client_processor::process_method()
+{
+    memset(this->bufferptr.get(),0,sizeof(*bufferptr.get()));
+    ssize_t bytes_read = read(evptr->getfd(), bufferptr.get(), sizeof(char)*READ_BUF_SIZE);
+    if(bytes_read > 0){
+        printf("message from client fd %d: %s\n", evptr->getfd(), bufferptr.get());
+        write(evptr->getfd(), bufferptr.get(), sizeof(char)*READ_BUF_SIZE);
+    } else if(bytes_read == -1 && errno == EINTR){  //客户端正常中断、继续读取
+        printf("continue reading");
+    } else if(bytes_read == -1 && ((errno == EAGAIN) || (errno == EWOULDBLOCK))){//非阻塞IO，这个条件表示数据全部读取完毕
+        printf("finish reading once, errno: %d\n", errno);
+    } else if(bytes_read == 0){  //EOF，客户端断开连接
+        printf("EOF, client fd %d disconnected\n", evptr->getfd());
+        eventmanager::epolldel(evptr);//关闭socket会自动将文件描述符从epoll树上移除
+    }
+}
+/**
+ * @brief
+ * processmanager
+*/
+std::vector<std::shared_ptr<event>> processmanager::processing_events;
+void processmanager::spinprocess()
+{
+    while (true) {
+        process();
+    }
+}
+void processmanager::process()
+{
+    processing_events.clear();
+    processing_events=eventmanager::epollget();
+    for (auto curevent:processing_events) {
+        process(curevent);
+    }
+}
+void processmanager::process(std::shared_ptr<event> curevent)
+{
+    curevent->process();
 }

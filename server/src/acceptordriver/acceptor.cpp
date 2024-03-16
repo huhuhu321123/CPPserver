@@ -40,7 +40,7 @@ int acceptor::accept_new_client()
 
 void acceptor::epollregister()
 {
-    event::create_event(acceptorfd,event::ACCEPTOR)->addtomanager();
+    event::create_event(acceptorfd,event::ACCEPTOR);
 }
 
 std::shared_ptr<acceptor> acceptor::get_instance()
