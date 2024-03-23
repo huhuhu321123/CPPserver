@@ -2,6 +2,7 @@
 #include "../eventdriver/event.h"
 #include "../logdriver/log.h"
 #include "../utils/utils.h"
+#include "../threads/threads.h"
 /**
  * @brief
  * 1. acceptor static member initialize

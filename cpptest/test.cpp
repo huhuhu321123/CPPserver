@@ -13,26 +13,29 @@
 #include <stdio.h>
 #include <string>
 #include <iostream>
+#include <thread>
+#include <mutex>
+#include <functional>
+#include <condition_variable>
 using namespace std;
-void change(int* x) {
-    *x=100;
+std::mutex mtx;
+void task(int n,char k)
+{
+    std::unique_lock<std::mutex> lck(mtx);
+    cout<<k<<" starts!"<<endl;
+    for (int i=0;i<n;i++) {
+        cout<<k;
+    }
+    cout<<endl;
 }
 int main()
 {
-    unordered_set<shared_ptr<int>> m;
-    shared_ptr<int>* tracker;
-    {
-        shared_ptr<int>b=shared_ptr<int>(new int);
-        *b=2;
-        tracker=&b;
-        m.emplace(b);
-        m.erase(b);
+    std::vector<std::thread> t;
+    for (int i=0;i<2;i++) {
+        t.emplace_back(std::thread(task,10000,'('+i));
     }
-    cout<<**tracker<<endl;
-    cout<<**tracker<<endl;
-    cout<<endl;
-    shared_ptr<int> aaa=shared_ptr<int>(new int(1));
-    change(aaa.get());
-    cout<<*aaa<<endl;
+    for (int i=0;i<2;i++) {
+        t[i].join();
+    }
     return 0;
 }

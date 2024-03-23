@@ -10,7 +10,7 @@
 #include <sys/epoll.h>
 #include <fcntl.h>
 #include <unordered_map>
-
+#include <functional>
 #define eventloop_init\
     eventmanager::getinstance()->eventloop();
 
@@ -18,6 +18,7 @@
     acceptor::get_instance();\
     eventmanager::get_instance();\
     acceptor::epollregister();\
+    threadsmanager::getinstance()->init();\
     processmanager::spinprocess();
 
 class eventlable
@@ -89,7 +90,7 @@ class processmanager
     public:
         static void spinprocess();
         static void process();
-        static void process(std::shared_ptr<event> eventptr);
+        static void taskprocess(std::shared_ptr<event> eventptr);
     private:
         static std::vector<std::shared_ptr<event>> processing_events;
 };

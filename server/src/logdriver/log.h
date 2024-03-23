@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string>
 #include <iostream>
+#include "../threads/threads.h"
 using namespace std;
 class loggermanager
 {

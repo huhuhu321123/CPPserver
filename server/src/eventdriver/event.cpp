@@ -2,6 +2,7 @@
 #include "../acceptordriver/acceptor.h"
 #include "../logdriver/log.h"
 #include "../utils/utils.h"
+#include "../threads/threads.h"
 /**
  * @brief
  *  event manager
@@ -238,10 +239,11 @@ void processmanager::process()
     processing_events.clear();
     processing_events=eventmanager::epollget();
     for (auto curevent:processing_events) {
-        process(curevent);
+        threadsmanager::addtask(std::bind(taskprocess,curevent));
     }
 }
-void processmanager::process(std::shared_ptr<event> curevent)
+void processmanager::taskprocess(std::shared_ptr<event> curevent)
 {
+    // std::cout<<"there is a new task! "<<curevent->getfd()<<endl;
     curevent->process();
 }
